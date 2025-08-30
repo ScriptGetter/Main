@@ -1,0 +1,516 @@
+-- FrenzyUI ModuleScript
+-- Place in ReplicatedStorage and require from a LocalScript
+-- Features:
+--  • CreateWindow(title, opt) -> window (draggable, animated)
+--  • window:CreateTab(name) -> tab
+--  • tab:CreateButton(text, callback)
+--  • tab:CreateToggle(text, default, callback)
+--  • tab:CreateSlider(text, min, max, default, callback)
+--  • tab:CreateDropdown(text, optionsTable, callback)
+--  • All UI created is parented to LocalPlayer.PlayerGui
+--  • Uses TweenService for subtle animations
+
+local FrenzyUI = {}
+FrenzyUI.__index = FrenzyUI
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local function new(name, class)
+	local inst = Instance.new(class)
+	inst.Name = name
+	return inst
+end
+
+local function createRounded(frame, amount)
+	-- helper to create a corner; returns the UIAspect for customization if needed
+	local uic = Instance.new("UICorner")
+	uic.CornerRadius = UDim.new(0, amount or 8)
+	uic.Parent = frame
+	return uic
+end
+
+local function tween(inst, props, time, style, dir)
+	return TweenService:Create(inst, TweenInfo.new(time or 0.18, Enum.EasingStyle[style or "Quad"], Enum.EasingDirection[dir or "Out"]), props)
+end
+
+-- Basic theme (you can modify this table)
+FrenzyUI.Theme = {
+	WindowBg = Color3.fromRGB(28, 28, 30),
+	HeaderBg = Color3.fromRGB(40, 40, 44),
+	ElementBg = Color3.fromRGB(34, 34, 36),
+	Accent = Color3.fromRGB(0, 170, 255),
+	Text = Color3.fromRGB(230, 230, 230),
+	SubText = Color3.fromRGB(160, 160, 160),
+	Corner = 8
+}
+
+-- Internal function: parent ScreenGui to PlayerGui safely
+local function getPlayerGui()
+	local pl = Players.LocalPlayer
+	if not pl then
+		repeat wait() until Players.LocalPlayer
+		pl = Players.LocalPlayer
+	end
+	local pg = pl:FindFirstChild("PlayerGui")
+	if not pg then
+		pg = Instance.new("PlayerGui")
+		pg.Name = "PlayerGui"
+		pg.Parent = pl
+	end
+	return pg
+end
+
+-- Drag logic for a frame (works with touch and mouse)
+local function makeDraggable(frame, dragHandle)
+	dragHandle = dragHandle or frame
+	local dragging, dragStart, startPos
+	local plrGui = getPlayerGui()
+
+	local function onInputBegan(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end
+
+	local function onInputChanged(input)
+		if dragging and input then
+			local delta = input.Position - dragStart
+			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end
+
+	dragHandle.InputBegan:Connect(onInputBegan)
+	UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			onInputChanged(input)
+		end
+	end)
+end
+
+-- Create a styled label (for titles and element labels)
+local function makeLabel(text, size, bold)
+	local lbl = new("Label", "TextLabel")
+	lbl.Size = size or UDim2.new(1, 0, 0, 20)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text or ""
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = bold and 16 or 14
+	lbl.TextColor3 = FrenzyUI.Theme.Text
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	return lbl
+end
+
+-- Window constructor
+function FrenzyUI:CreateWindow(title, opt)
+	opt = opt or {}
+	local playerGui = getPlayerGui()
+	local screenGui = new("ScreenGui", "FrenzyUI_" .. tostring(math.random(1000,9999)))
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = playerGui
+
+	local main = new("Frame", "MainWindow")
+	main.Size = UDim2.new(0, opt.width or 420, 0, opt.height or 320)
+	main.Position = opt.position or UDim2.new(0.5, -(opt.width or 420)/2, 0.5, -(opt.height or 320)/2)
+	main.AnchorPoint = Vector2.new(0.5, 0.5)
+	main.BackgroundColor3 = FrenzyUI.Theme.WindowBg
+	main.Parent = screenGui
+	createRounded(main, FrenzyUI.Theme.Corner)
+
+	-- Header
+	local header = new("Frame", "Header")
+	header.Size = UDim2.new(1, 0, 0, 36)
+	header.Position = UDim2.new(0, 0, 0, 0)
+	header.BackgroundColor3 = FrenzyUI.Theme.HeaderBg
+	header.Parent = main
+	createRounded(header, FrenzyUI.Theme.Corner)
+
+	local titleLbl = new("TextLabel", "Title")
+	titleLbl.Size = UDim2.new(1, -70, 1, 0)
+	titleLbl.Position = UDim2.new(0, 12, 0, 0)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = title or "FrenzyUI"
+	titleLbl.Font = Enum.Font.GothamBold
+	titleLbl.TextSize = 16
+	titleLbl.TextColor3 = FrenzyUI.Theme.Text
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Parent = header
+
+	-- Close button
+	local closeBtn = new("TextButton", "Close")
+	closeBtn.Size = UDim2.new(0, 48, 0, 24)
+	closeBtn.Position = UDim2.new(1, -56, 0.5, -12)
+	closeBtn.BackgroundTransparency = 1
+	closeBtn.Text = "✕"
+	closeBtn.Font = Enum.Font.Gotham
+	closeBtn.TextSize = 18
+	closeBtn.TextColor3 = FrenzyUI.Theme.SubText
+	closeBtn.Parent = header
+
+	-- Body (left: tabs; right: content)
+	local content = new("Frame", "Content")
+	content.Size = UDim2.new(1, 0, 1, -36)
+	content.Position = UDim2.new(0, 0, 0, 36)
+	content.BackgroundTransparency = 1
+	content.Parent = main
+
+	local left = new("Frame", "Left")
+	left.Size = UDim2.new(0, 140, 1, 0)
+	left.Position = UDim2.new(0, 0, 0, 0)
+	left.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+	left.Parent = content
+	createRounded(left, FrenzyUI.Theme.Corner)
+
+	local right = new("Frame", "Right")
+	right.Size = UDim2.new(1, -140, 1, 0)
+	right.Position = UDim2.new(0, 140, 0, 0)
+	right.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	right.BackgroundTransparency = 1
+	right.Parent = content
+
+	-- internal layout containers
+	local tabList = new("UIListLayout", "TabList")
+	tabList.Parent = left
+	tabList.Padding = UDim.new(0, 6)
+	tabList.SortOrder = Enum.SortOrder.LayoutOrder
+	tabList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	local pagesFolder = new("Folder", "Pages")
+	pagesFolder.Parent = right
+
+	local tabs = {}
+	local activePage = nil
+
+	-- close animation
+	closeBtn.MouseButton1Click:Connect(function()
+		local t = tween(main, {Size = UDim2.new(0, main.Size.X.Offset, 0, 0)}, 0.18)
+		t:Play()
+		t.Completed:Wait()
+		screenGui:Destroy()
+	end)
+
+	-- make draggable using header
+	makeDraggable(main, header)
+
+	-- CreateTab method
+	local windowObj = {}
+	function windowObj:CreateTab(name)
+		local tabBtn = new("TextButton", "Tab_"..name)
+		tabBtn.Size = UDim2.new(1, -16, 0, 34)
+		tabBtn.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+		tabBtn.Text = name
+		tabBtn.Font = Enum.Font.Gotham
+		tabBtn.TextSize = 14
+		tabBtn.TextColor3 = FrenzyUI.Theme.Text
+		tabBtn.Parent = left
+		createRounded(tabBtn, FrenzyUI.Theme.Corner)
+
+		local page = new("Frame", "Page_"..name)
+		page.Size = UDim2.new(1, 0, 1, 0)
+		page.BackgroundTransparency = 1
+		page.Parent = pagesFolder
+		page.Visible = false
+
+		local pageLayout = new("UIListLayout", "PageLayout")
+		pageLayout.Parent = page
+		pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		pageLayout.Padding = UDim.new(0, 8)
+
+		local function setActive()
+			-- hide others
+			for _,p in pairs(pagesFolder:GetChildren()) do
+				if p:IsA("Frame") then
+					p.Visible = (p == page)
+				end
+			end
+			activePage = page
+			-- highlight tab
+			for _,b in pairs(left:GetChildren()) do
+				if b:IsA("TextButton") then
+					b.TextColor3 = FrenzyUI.Theme.Text
+					b.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+				end
+			end
+			tabBtn.TextColor3 = FrenzyUI.Theme.Accent
+			tabBtn.BackgroundColor3 = Color3.fromRGB(46,46,48)
+		end
+
+		tabBtn.MouseButton1Click:Connect(setActive)
+
+		-- default: if first created, set active
+		if #tabs == 0 then
+			setActive()
+		end
+
+		local tabAPI = {}
+
+		-- CreateButton
+		function tabAPI:CreateButton(text, callback)
+			local btn = new("TextButton", "Button_"..text:gsub("%s","_"))
+			btn.Size = UDim2.new(1, -18, 0, 36)
+			btn.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+			btn.Font = Enum.Font.Gotham
+			btn.TextSize = 14
+			btn.Text = text
+			btn.TextColor3 = FrenzyUI.Theme.Text
+			btn.Parent = page
+			createRounded(btn, FrenzyUI.Theme.Corner)
+
+			btn.MouseButton1Click:Connect(function()
+				pcall(callback)
+				-- subtle press feedback
+				local up = tween(btn, {Position = btn.Position}, 0.08)
+				up:Play()
+			end)
+
+			return btn
+		end
+
+		-- CreateToggle
+		function tabAPI:CreateToggle(text, default, callback)
+			default = default == true
+			local container = new("Frame", "Toggle_"..text:gsub("%s","_"))
+			container.Size = UDim2.new(1, -18, 0, 28)
+			container.BackgroundTransparency = 1
+			container.Parent = page
+
+			local label = makeLabel(text, UDim2.new(0.7, 0, 1, 0))
+			label.Parent = container
+
+			local toggleBtn = new("TextButton", "ToggleBtn")
+			toggleBtn.Size = UDim2.new(0, 48, 0, 20)
+			toggleBtn.Position = UDim2.new(1, -56, 0.5, -10)
+			toggleBtn.AnchorPoint = Vector2.new(0, 0)
+			toggleBtn.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+			toggleBtn.Font = Enum.Font.Gotham
+			toggleBtn.Text = ""
+			toggleBtn.Parent = container
+			createRounded(toggleBtn, 12)
+
+			local fill = new("Frame", "Fill")
+			fill.Size = UDim2.new(default and 1 or 0, 0, 1, 0)
+			fill.BackgroundColor3 = FrenzyUI.Theme.Accent
+			fill.Parent = toggleBtn
+			createRounded(fill, 12)
+
+			local state = default
+			toggleBtn.MouseButton1Click:Connect(function()
+				state = not state
+				local target = (state and UDim2.new(1,0,1,0) or UDim2.new(0,0,1,0))
+				tween(fill, {Size = target}, 0.14):Play()
+				pcall(callback, state)
+			end)
+
+			-- initial visually set
+			fill.Size = (state and UDim2.new(1,0,1,0) or UDim2.new(0,0,1,0))
+
+			return {
+				Set = function(val)
+					state = val and true or false
+					fill.Size = (state and UDim2.new(1,0,1,0) or UDim2.new(0,0,1,0))
+					pcall(callback, state)
+				end,
+				Get = function() return state end
+			}
+		end
+
+		-- CreateSlider
+		function tabAPI:CreateSlider(text, min, max, default, callback)
+			min = min or 0
+			max = max or 100
+			default = math.clamp(default or min, min, max)
+
+			local container = new("Frame", "Slider_"..text:gsub("%s","_"))
+			container.Size = UDim2.new(1, -18, 0, 48)
+			container.BackgroundTransparency = 1
+			container.Parent = page
+
+			local label = makeLabel(text, UDim2.new(1, 0, 0, 18), true)
+			label.Parent = container
+
+			local sliderBg = new("Frame", "SliderBg")
+			sliderBg.Size = UDim2.new(1, 0, 0, 12)
+			sliderBg.Position = UDim2.new(0, 0, 0, 24)
+			sliderBg.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+			sliderBg.Parent = container
+			createRounded(sliderBg, 8)
+
+			local fill = new("Frame", "Fill")
+			fill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0)
+			fill.BackgroundColor3 = FrenzyUI.Theme.Accent
+			fill.Parent = sliderBg
+			createRounded(fill, 8)
+
+			local knob = new("TextButton", "Knob")
+			knob.Size = UDim2.new(0, 12, 0, 12)
+			knob.AnchorPoint = Vector2.new(0.5, 0.5)
+			knob.Position = UDim2.new(fill.Size.X.Scale, 0, 0.5, 0)
+			knob.BackgroundColor3 = FrenzyUI.Theme.Text
+			knob.Text = ""
+			knob.Parent = sliderBg
+			createRounded(knob, 12)
+
+			local dragging = false
+			local function updateFromInput(x)
+				local absPos = x - sliderBg.AbsolutePosition.X
+				local width = sliderBg.AbsoluteSize.X
+				local pct = math.clamp(absPos/width, 0, 1)
+				fill.Size = UDim2.new(pct, 0, 1, 0)
+				knob.Position = UDim2.new(pct, 0, 0.5, 0)
+				local value = min + (max-min) * pct
+				pcall(callback, math.floor(value*100+0.5)/100)
+			end
+
+			knob.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = true
+				end
+			end)
+			knob.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = false
+				end
+			end)
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+					updateFromInput(input.Position.X)
+				end
+			end)
+			sliderBg.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					updateFromInput(input.Position.X)
+				end
+			end)
+
+			return {
+				Set = function(val)
+					val = math.clamp(val, min, max)
+					local pct = (val - min)/(max - min)
+					fill.Size = UDim2.new(pct, 0, 1, 0)
+					knob.Position = UDim2.new(pct, 0, 0.5, 0)
+					pcall(callback, val)
+				end,
+				Get = function()
+					local pct = fill.Size.X.Scale
+					return min + (max-min) * pct
+				end
+			}
+		end
+
+		-- CreateDropdown
+		function tabAPI:CreateDropdown(text, options, callback)
+			options = options or {}
+			local container = new("Frame", "Dropdown_"..text:gsub("%s","_"))
+			container.Size = UDim2.new(1, -18, 0, 36)
+			container.BackgroundTransparency = 1
+			container.Parent = page
+
+			local label = makeLabel(text, UDim2.new(1, 0, 0, 16), true)
+			label.Parent = container
+
+			local select = new("TextButton", "Select")
+			select.Size = UDim2.new(1, 0, 0, 20)
+			select.Position = UDim2.new(0, 0, 0, 16)
+			select.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+			select.Font = Enum.Font.Gotham
+			select.Text = options[1] or "Select"
+			select.TextColor3 = FrenzyUI.Theme.Text
+			select.TextSize = 14
+			select.Parent = container
+			createRounded(select, FrenzyUI.Theme.Corner)
+
+			local listFrame = new("Frame", "List")
+			listFrame.Size = UDim2.new(1, 0, 0, 0)
+			listFrame.Position = UDim2.new(0, 0, 0, 36)
+			listFrame.ClipsDescendants = true
+			listFrame.BackgroundTransparency = 1
+			listFrame.Parent = page
+
+			local listLayout = new("UIListLayout", "ListLayout")
+			listLayout.Parent = listFrame
+			listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+			listLayout.Padding = UDim.new(0, 6)
+
+			local expanded = false
+			local function toggleExpand()
+				expanded = not expanded
+				local targetH = expanded and (#options * 28) or 0
+				tween(listFrame, {Size = UDim2.new(1, 0, 0, targetH)}, 0.18):Play()
+			end
+
+			select.MouseButton1Click:Connect(toggleExpand)
+
+			-- fill options
+			for i, opt in ipairs(options) do
+				local itm = new("TextButton", "Opt_"..tostring(i))
+				itm.Size = UDim2.new(1, 0, 0, 24)
+				itm.BackgroundColor3 = FrenzyUI.Theme.ElementBg
+				itm.Font = Enum.Font.Gotham
+				itm.Text = tostring(opt)
+				itm.TextSize = 14
+				itm.TextColor3 = FrenzyUI.Theme.Text
+				itm.AutoButtonColor = true
+				itm.Parent = listFrame
+				createRounded(itm, math.max(6, FrenzyUI.Theme.Corner - 2))
+
+				itm.MouseButton1Click:Connect(function()
+					select.Text = itm.Text
+					expanded = false
+					tween(listFrame, {Size = UDim2.new(1, 0, 0, 0)}, 0.16):Play()
+					pcall(callback, itm.Text)
+				end)
+			end
+
+			return {
+				Set = function(val)
+					select.Text = tostring(val)
+				end,
+				Get = function()
+					return select.Text
+				end
+			}
+		end
+
+		-- convenience: create separator
+		function tabAPI:CreateSeparator()
+			local sep = new("Frame", "Separator")
+			sep.Size = UDim2.new(1, -18, 0, 8)
+			sep.BackgroundTransparency = 1
+			sep.Parent = page
+			local line = new("Frame", "Line")
+			line.Size = UDim2.new(1, 0, 0, 2)
+			line.Position = UDim2.new(0, 0, 0.5, -1)
+			line.AnchorPoint = Vector2.new(0,0.5)
+			line.BackgroundColor3 = Color3.fromRGB(50,50,50)
+			line.Parent = sep
+			createRounded(line, 4)
+			return sep
+		end
+
+		-- return api for this tab
+		table.insert(tabs, {name = name, button = tabBtn, page = page})
+		return tabAPI
+	end
+
+	-- return window object with API
+	local ret = {
+		Raw = main,
+		Close = function() screenGui:Destroy() end,
+		CreateTab = function(_, name) return windowObj:CreateTab(name) end,
+		SetTheme = function(_, newTheme)
+			for k,v in pairs(newTheme) do FrenzyUI.Theme[k] = v end
+			-- not retroactive; future elements will use new theme
+		end
+	}
+	return ret
+end
+
+return FrenzyUI
